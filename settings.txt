@@ -1,0 +1,15 @@
+camera_res_x=320
+camera_res_y=180
+Focal_length_x_mm=3.6
+Focal_length_y_mm=3.6
+field_of_view_rad=0.9337511
+camera_sensor_width_mm=3.76
+camera_sensor_height_mm=2.74
+beacon_0_id=0
+beacon_0_x=0.762
+beacon_0_y=0.3048
+beacon_1_id=1
+beacon_1_x=0.762
+beacon_1_y=-0.3048
+beacon_0_width_mm=150
+beacon_1_width_mm=150
