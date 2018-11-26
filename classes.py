@@ -22,7 +22,7 @@ parameters = aruco.DetectorParameters_create()
 parameters.adaptiveThreshWinSizeMin =3
 parameters.adaptiveThreshWinSizeMax=23
 parameters.adaptiveThreshWinSizeStep=10
-parameters.adaptiveThreshConstant=7
+parameters.adaptiveThreshConstant=.7
 parameters.polygonalApproxAccuracyRate=0.05
 parameters.minDistanceToBorder=3
 parameters.cornerRefinementMethod = 0
@@ -75,28 +75,36 @@ class navigation:
         self.beacon_1 = beacon(beacon_1_x, beacon_1_y, beacon_1_id, beacon_1_width_mm)
 
     def go_to(self, x, y):
+        self.desired_x = x
+        self.desired_y = y
         self.find_current_position()
+        print("Current location: ( ", self.robot.x, " , ", self.robot.y, " )")
         self.find_current_angle()
+        print("Current angle: ", self.robot.angle)
         self.calculate_trajectory()
+        print("Distance to travel: ", self.travel_distance)
+        print("Angle to turn: ", self.turn_angle)
+        self.send_info()
         
 
 
     def find_current_position(self):
         self.robot.start_sweep() # Making the robot spin so you can look for the beacons
         
-        self.beacon_0, self.beacon_1 = self.camera.find_beacon_locations(); # Finding the beacons in the picture (don't have to be in the same frame)
+        self.beacon_0, self.beacon_1 = self.camera.find_beacon_corners(self.beacon_0, self.beacon_1); # Finding the beacons in the picture (don't have to be in the same frame)
         
         self.robot.stop_sweep() # Stopping the robot from turning
         
-        self.beacon_0 = self.camera.distance_to_beacon(beacon_0) # Calculating the distance to beacon 0
-        self.beacon_1 = self.camera.distance_to_beacon(beacon_1) # Calculating the distance to beacon 1
+        self.beacon_0 = self.camera.distance_to_beacon(self.beacon_0) # Calculating the distance to beacon 0
+        self.beacon_1 = self.camera.distance_to_beacon(self.beacon_1) # Calculating the distance to beacon 1
         
-        self.robot.calculate_position(self.beacon_0, self.beacon_1) # Calculating the position of the robot
+        self.calculate_position() # Calculating the position of the robot
         
         
     def calculate_position(self):
         dist_between_beacons = math.sqrt( (self.beacon_0.x - self.beacon_1.x)**2 + (self.beacon_0.y - self.beacon_1.y)**2 )
         
+        print("Distance between beacons:", dist_between_beacons)
         A = law_of_cos(self.beacon_0.distance, self.beacon_1.distance, dist_between_beacons)
         
         if A > (math.pi / 2): # If the angle is obtuse, need to use the right triangle under the line instead
@@ -108,8 +116,8 @@ class navigation:
         else:
             offset_y = self.beacon_1.distance * math.cos(A)
             offset_x = self.beacon_1.distance * math.sin(A)
-            self.x = self.beacon_1.x - offset_x
-            self.y = self.beacon_1.y + offset_y
+            self.robot.x = self.beacon_1.x - offset_x
+            self.robot.y = self.beacon_1.y + offset_y
             
 
 
@@ -128,12 +136,33 @@ class navigation:
         angle_to_beacon = math.atan( (angle_beacon.y - self.robot.y) / (angle_beacon.x - self.robot.x) ) 
         
         if distance_to_center_pix > 0:
-            self.robot.angle = angle_to_beacon + angle_ref_to_beacon
-        else:
             self.robot.angle = angle_to_beacon - angle_ref_to_beacon
+        else:
+            self.robot.angle = angle_to_beacon + angle_ref_to_beacon
             
-    def calculate_trajectory():
-        pass
+        print("Angle ref to beacon: ", angle_ref_to_beacon)
+        print("Angle to beacon: ", angle_to_beacon)
+        print("Robot angle: ", self.robot.angle)
+            
+    def calculate_trajectory(self):
+        self.travel_distance = math.sqrt( (self.robot.x - self.desired_x)**2 + (self.robot.y - self.desired_y)**2 )
+
+        if self.desired_x > self.robot.x: # Quad 1 and 4
+            desired_angle = math.atan( (self.desired_y - self.robot.y) / (self.desired_x - self.robot.x) )
+        else: # Quad 2 and 3
+            desired_angle = math.pi + math.atan( -(self.desired_y - self.robot.y) / (self.desired_x - self.robot.x) )
+        
+        if desired_angle < 0:
+            desired_angle = desired_angle + 2 * math.pi 
+
+        self.turn_angle = desired_angle - self.robot.angle
+
+    def send_info(self):
+        distance_to_travel_int = int(1000 * self.travel_distance)
+        angle_int = -int(100 * self.turn_angle)
+        robot_movement = list(struct.pack('hh', distance_to_travel_int, angle_int))
+        self.robot.send_data(robot_movement)
+        
         
 class beacon:
     
@@ -193,7 +222,7 @@ class full_camera:
         edge_length_pix = math.sqrt( (beacon.corner_1_x- beacon.corner_2_x)**2 + (beacon.corner_1_y - beacon.corner_2_y)**2 ) # Calculating the length of the aruco beacon edge in pixels
         
         
-        beacon.distance = (beacon.edge_width_mm * self.F_x * self.res_x) / (self.sensor_width * edge_length_pix) # Calculates the distance to the beacon
+        beacon.distance = ((beacon.edge_width_mm * self.F_x * self.res_x) / (self.sensor_width * edge_length_pix)) / 1000# Calculates the distance to the beacon
         
         return beacon
 
@@ -209,7 +238,7 @@ class full_camera:
             gray = cv2.cvtColor(image_data, cv2.COLOR_BGR2GRAY)
         
             corners, ids, rejected_image_points = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
-        
+            print("Picture taken...")
             try:
                 len(ids)
             except:
@@ -219,9 +248,11 @@ class full_camera:
                 if ids[i] == beacon_0.id and not beacon_0.found:
                     beacon_0.set_corners(corners[i])
                     beacon_0.found_set()
+                    print("Beacon 0 found...")
                 elif ids[i] == beacon_1.id and not beacon_1.found:
                     beacon_1.set_corners(corners[i])
                     beacon_1.found_set()
+                    print("Beacon 1 found...")
                     
         return beacon_0, beacon_1
         
@@ -239,8 +270,6 @@ class the_robot:
         self.angle = 999
         pass
             
-    def turn_angle(self, angle_to_turn_rad):
-        pass
     
     def start_sweep(self):
         data = [0, 0]
@@ -248,7 +277,7 @@ class the_robot:
         print("Robot sweeping...\n")
         return
     
-    def stop_sweep(self, data):
+    def stop_sweep(self):
         data = [1, 0]
         self.send_data(data)
         print("Stopping robot...\n")
@@ -256,7 +285,7 @@ class the_robot:
     
         
     
-    def send_data(self):
+    def send_data(self, data):
         sent = False
         while not sent:
             try:
@@ -271,7 +300,6 @@ class the_robot:
     
     
 def law_of_cos(a, b, c):
-    
     A = math.acos((-(a**2) + b**2 + c**2) / (2 * b * c))
     
     return A

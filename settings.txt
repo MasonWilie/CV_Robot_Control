@@ -1,5 +1,5 @@
-camera_res_x=320
-camera_res_y=180
+camera_res_x=720
+camera_res_y=480
 Focal_length_x_mm=3.6
 Focal_length_y_mm=3.6
 field_of_view_rad=0.9337511
