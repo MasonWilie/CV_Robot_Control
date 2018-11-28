@@ -19,21 +19,6 @@ aruco_dict=aruco.Dictionary_get(aruco.DICT_4X4_50)
 
 
 parameters = aruco.DetectorParameters_create()
-parameters.adaptiveThreshWinSizeMin =3
-parameters.adaptiveThreshWinSizeMax=23
-parameters.adaptiveThreshWinSizeStep=10
-parameters.adaptiveThreshConstant=.7
-parameters.polygonalApproxAccuracyRate=0.05
-parameters.minDistanceToBorder=3
-parameters.cornerRefinementMethod = 0
-parameters.cornerRefinementWinSize=5
-parameters.cornerRefinementMaxIterations=30
-parameters.cornerRefinementMinAccuracy=0.1
-parameters.perspectiveRemovePixelPerCell=8
-parameters.perspectiveRemoveIgnoredMarginPerCell=0.13
-parameters.maxErroneousBitsInBorderRate=0.04
-parameters.minOtsuStdDev=5.0
-parameters.errorCorrectionRate=0.6
 
 
 class navigation:
@@ -45,6 +30,8 @@ class navigation:
     
     def setup(self, filename):
         settings = {}
+
+        # Reading in the settings from the settings file
         file = open(filename)
         for line in file:
             split_line = line.split('=', 1)
@@ -52,7 +39,7 @@ class navigation:
             set_def = split_line[1]
             settings[set_key] = set_def
         file.close()
-            
+    
         camera_res_x = int(settings["camera_res_x"])
         camera_res_y = int(settings["camera_res_y"])
         focal_length_x = float(settings["Focal_length_x_mm"])
@@ -68,12 +55,16 @@ class navigation:
         beacon_1_y=float(settings["beacon_1_y"])
         beacon_0_width_mm=int(settings["beacon_0_width_mm"])
         beacon_1_width_mm=int(settings["beacon_1_width_mm"])
-        
+
+        # Initializing the camera object
         self.camera = full_camera(camera_res_x, camera_res_y, focal_length_x, focal_length_y,
                                   camera_sens_w, camera_sens_h, field_of_view)
+
+        # Initializing the beacon objects
         self.beacon_0 = beacon(beacon_0_x, beacon_0_y, beacon_0_id, beacon_0_width_mm)
         self.beacon_1 = beacon(beacon_1_x, beacon_1_y, beacon_1_id, beacon_1_width_mm)
 
+    # Navigates the robot to a desired position
     def go_to(self, x, y):
         self.desired_x = x
         self.desired_y = y
@@ -87,25 +78,26 @@ class navigation:
         self.send_info()
         
 
-
+    # Finds the distance to the beacons and sets the position of the robot in x and y coordinates
     def find_current_position(self):
-        self.robot.start_sweep() # Making the robot spin so you can look for the beacons
+        self.robot.start_sweep()
         
-        self.beacon_0, self.beacon_1 = self.camera.find_beacon_corners(self.beacon_0, self.beacon_1); # Finding the beacons in the picture (don't have to be in the same frame)
+        self.beacon_0, self.beacon_1 = self.camera.find_beacon_corners(self.beacon_0, self.beacon_1);
         
-        self.robot.stop_sweep() # Stopping the robot from turning
+        self.robot.stop_sweep()
         
-        self.beacon_0 = self.camera.distance_to_beacon(self.beacon_0) # Calculating the distance to beacon 0
-        self.beacon_1 = self.camera.distance_to_beacon(self.beacon_1) # Calculating the distance to beacon 1
+        self.beacon_0 = self.camera.distance_to_beacon(self.beacon_0)
+        self.beacon_1 = self.camera.distance_to_beacon(self.beacon_1)
         
-        self.calculate_position() # Calculating the position of the robot
+        self.calculate_position()
         
-        
+
+    # Calculates the position of the robot in x and y coordinates    
     def calculate_position(self):
         dist_between_beacons = math.sqrt( (self.beacon_0.x - self.beacon_1.x)**2 + (self.beacon_0.y - self.beacon_1.y)**2 )
         
         print("Distance between beacons:", dist_between_beacons)
-        A = law_of_cos(self.beacon_0.distance, self.beacon_1.distance, dist_between_beacons)
+        A = law_of_cos(self.beacon_0.distance, self.beacon_1.distance, dist_between_beacons) # Angle from the beacon to the robot
         
         if A > (math.pi / 2): # If the angle is obtuse, need to use the right triangle under the line instead
             A = math.pi - A
@@ -120,16 +112,17 @@ class navigation:
             self.robot.y = self.beacon_1.y + offset_y
             
 
-
+    # Finds the angle that the robot is currently facing
     def find_current_angle(self):
-        if (self.beacon_0.time_found > self.beacon_1.time_found):
+        if (self.beacon_0.time_found > self.beacon_1.time_found): # Choose the beacon that was found last as a reference because that is the way you are currently facing
             angle_beacon = self.beacon_0
         else:
             angle_beacon = self.beacon_1
         
         beacon_point_on_screen = (angle_beacon.corner_1_x + angle_beacon.corner_2_x) / 2
         distance_to_center_pix = (self.camera.res_x / 2) - beacon_point_on_screen
-            
+
+        # Calculating the angle that the robot is facing in relation to the beacon    
         L = self.camera.res_x / (2 * math.tan(self.camera.fov / 2)) # Intermediate variable for organizational purposes
         angle_ref_to_beacon = math.atan(abs(distance_to_center_pix) / L)
         
@@ -150,18 +143,22 @@ class navigation:
         if self.desired_x > self.robot.x: # Quad 1 and 4
             desired_angle = math.atan( (self.desired_y - self.robot.y) / (self.desired_x - self.robot.x) )
         else: # Quad 2 and 3
-            desired_angle = math.pi + math.atan( -(self.desired_y - self.robot.y) / (self.desired_x - self.robot.x) )
+            desired_angle = math.pi + math.atan( (self.desired_y - self.robot.y) / (self.desired_x - self.robot.x) )
         
-        if desired_angle < 0:
-            desired_angle = desired_angle + 2 * math.pi 
+        #if desired_angle < 0:
+            #desired_angle = desired_angle + 2 * math.pi 
 
         self.turn_angle = desired_angle - self.robot.angle
 
     def send_info(self):
         distance_to_travel_int = int(1000 * self.travel_distance)
         angle_int = -int(100 * self.turn_angle)
-        robot_movement = list(struct.pack('hh', distance_to_travel_int, angle_int))
+        
+        self.robot.angle = self.robot.angle + self.turn_angle
+        current_angle_int = -int(100 * self.robot.angle)
+        robot_movement = list(struct.pack('hhh', distance_to_travel_int, angle_int, current_angle_int))
         self.robot.send_data(robot_movement)
+        
         
         
 class beacon:
@@ -238,7 +235,6 @@ class full_camera:
             gray = cv2.cvtColor(image_data, cv2.COLOR_BGR2GRAY)
         
             corners, ids, rejected_image_points = aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
-            print("Picture taken...")
             try:
                 len(ids)
             except:

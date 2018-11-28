@@ -10,11 +10,13 @@ import smbus
 import struct
 import classes
 
-#desired_x = input("Enter the desired x coordinate: ")
-#desired_y = input("Enter the desired y coordinate: ")
+ft_to_m = 0.305
 
-x = 0.762
-y = 0.914
+#desired_x = float(input("Enter the desired x coordinate: "))
+#desired_y = float(input("Enter the desired y coordinate: "))
+
+x = 4 * ft_to_m
+y = -3 * ft_to_m
 
 nav = classes.navigation()
 nav.go_to(x, y)
